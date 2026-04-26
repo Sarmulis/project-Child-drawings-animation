@@ -1,0 +1,32 @@
+import cv2
+import numpy as np
+
+def fill_background_hole(original_image_path, mask_path, background_output):
+    # 1. Ielādējam oriģinālo zīmējumu (kur vēl ir viss kopā)
+    img = cv2.imread(original_image_path)
+    
+    # 2. Ielādējam masku, ko ieguvām no GrabCut soļa 
+    # Maska jāielādē kā melnbalts attēls (0 - fons, 255 - caurums, kas jāaizkrāso)
+    mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+    
+    if img is None or mask is None:
+        print("Kļūda: Nevar ielādēt attēlu vai masku.")
+        return
+
+    # 3. Paplašinām masku (Dilation)
+    # Tas ir drošības solis. Lai Inpainting neatstātu kontūras "atliekas" (ghosting),
+    # mēs masku padarām par pāris pikseļiem lielāku, nekā pats tēls.
+    kernel = np.ones((5, 5), np.uint8)
+    dilated_mask = cv2.dilate(mask, kernel, iterations=2)
+    
+    # 4. Pielietojam Inpainting
+    # cv2.INPAINT_TELEA - ātrs algoritms, kas labi strādā ar vienkāršām krāsām un tekstūrām.
+    # 3 ir rādiuss - cik tālu ap caurumu algoritms meklēs krāsas aizpildīšanai.
+    background_inpainted = cv2.inpaint(img, dilated_mask, 3, cv2.INPAINT_TELEA)
+    
+    # 5. Saglabājam tīro fonu
+    cv2.imwrite(background_output, background_inpainted)
+    print(f"Fons bez galvenā tēla saglabāts: {background_output}")
+
+# Lietošanas piemērs:
+# fill_background_hole('berna_zimejums_clahe.jpg', 'tels_maska.png', 'tirs_fons.jpg')
