@@ -1,0 +1,50 @@
+import cv2
+import numpy as np
+
+def extract_main_character(image_path, foreground_output):
+    # 1. Ielādējam attēlu (pieņemam, ka tas jau ir izlaists caur CLAHE)
+    img = cv2.imread(image_path)
+    if img is None:
+        return
+    
+    # 2. Inicializējam Saliency objektu (Fine Grained metode ir laba detaļām)
+    saliency = cv2.saliency.StaticSaliencyFineGrained_create()
+    
+    # 3. Ģenerējam Saliency karti (atgriež vērtības no 0 līdz 1)
+    (success, saliency_map) = saliency.computeSaliency(img)
+    
+    # Pārveidojam karti 8-bitu formātā (0-255)
+    saliency_map = (saliency_map * 255).astype("uint8")
+    
+    # 4. Izveidojam aptuveno masku ar Threshold
+    # Viss, kas ir pietiekami "svarīgs", kļūst balts
+    _, thresh_map = cv2.threshold(saliency_map, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+    
+    # 5. GrabCut sagatavošana fona atdalīšanai
+    # GrabCut nepieciešama tukša maska un divi masīvi iekšējiem aprēķiniem
+    mask = np.zeros(img.shape[:2], np.uint8)
+    bgdModel = np.zeros((1, 65), np.float64)
+    fgdModel = np.zeros((1, 65), np.float64)
+    
+    # Pārnesam Saliency informāciju uz GrabCut masku:
+    # 0 = drošs fons, 1 = drošs priekšplāns, 2 = iespējams fons, 3 = iespējams priekšplāns
+    mask[thresh_map == 255] = 3  # Iespējams priekšplāns (galvenais tēls)
+    mask[thresh_map == 0] = 2    # Iespējams fons (ainava)
+    
+    # 6. Darbinām GrabCut (algoritms pats precizēs robežas)
+    cv2.grabCut(img, mask, None, bgdModel, fgdModel, 5, cv2.GC_INIT_WITH_MASK)
+    
+    # 7. Izveidojam galējo masku
+    # Atlasām tikai tos pikseļus, kas ir drošs (1) vai iespējams (3) priekšplāns
+    final_mask = np.where((mask == 1) | (mask == 3), 255, 0).astype('uint8')
+    
+    # 8. Izgriežam tēlu, saglabājot oriģinālās krāsas un pievienojot Alpha (caurspīdīgo) kanālu
+    img_rgba = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
+    img_rgba[:, :, 3] = final_mask  # Viss, kas nav tēls, kļūst pilnīgi caurspīdīgs
+    
+    # Saglabājam izgriezto galveno tēlu
+    cv2.imwrite(foreground_output, img_rgba)
+    print(f"Galvenais tēls saglabāts: {foreground_output}")
+
+# Lietošanas piemērs:
+# extract_main_character('berna_zimejums_clahe.jpg', 'tels_bez_fona.png')
